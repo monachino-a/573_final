@@ -1,0 +1,116 @@
+---
+title: "HW 8"
+author: "Alexa Monachino"
+date: "`r Sys.Date()`"
+format: pdf
+---
+
+```{r, echo=F}
+#| message: false
+#| echo: false
+#| output: false
+library(cmdstanr)  # use two cores
+library(bayesplot)
+
+# Determine list of packages:
+list.of.packages <- c("psych", "reshape2", "car", "ggplot2", "tidyr", "dplyr", "foreach", "doParallel", "R.matlab", "brms", "modelsummary", "posterior", "readxl", "here")
+
+# Install any packages that are not installed already:
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+# Load packages
+lapply(list.of.packages, require, character.only = TRUE)
+```
+
+# Research Question
+
+> Is there difference in infant attention, as measured by signal-to-noise ratio, to different affective expressions?
+
+# Variables
+
+- `id`/`record_id`: Participant ID number
+- `variable`: affect condition with the following options: Neutral, Happy, Angry, Fear
+- `value`: SNR, measure of attention
+
+## Data Import
+
+```{r}
+snr <- read_excel(here("data_files", "ssVEP_Bayes.xlsx"))
+```
+
+## Variable Summary
+
+Table @tbl-summ-var shows the summary statistics of evaluation ratings by groups.
+
+```{r}
+#| message: false
+#| echo: false
+#| label: tbl-summ-var
+#| tbl-cap: Descriptive statistics by groups
+datasummary(value  * 
+                (N + Mean + SD + Min + Max + Histogram) ~ 
+                factor(variable, labels = c("Neutral", "Happy", "Angry", "Fear")),
+            data = snr)
+```
+
+# Model
+
+Model:
+$$
+  \begin{aligned}
+    Value_{variable, id} & \sim N(\mu_{variable, id}, \sigma) \\ 
+    \mu_{variable, id} & \sim N(\gamma_{variable},\tau)
+  \end{aligned}
+$$
+
+Prior:
+$$
+  \begin{aligned}
+    \gamma & \sim 0 \\
+    \sigma & \sim t^+(3, 0, 2.5) \\
+    \tau & \sim t^+(3, 0, 2.5)
+  \end{aligned}
+$$
+
+## Analysis
+
+We used 4 chains, each with 4,000 iterations (first 2,000 as warm-ups). 
+
+```{r}
+#| message: false
+#| echo: false
+#| output: false
+mod <- brm(value ~ 0 + variable + (1 | record_id),
+           data = snr,
+           iter = 4000,
+           prior = prior(normal(0, 1), class = "b"),
+           save_pars = save_pars(all = TRUE),
+           seed = 1234)
+```
+
+# Results
+
+As shown in the trace plots in @fig-trace-fit below, the chains mixed well.
+
+```{r}
+#| message: false
+#| echo: false
+#| label: fig-trace-fit
+#| fig-cap: Trace plot of the posterior distributions of model parameters.
+mcmc_plot(mod, type = "trace")
+```
+
+@tbl-summ-fit shows the posterior distributions.
+
+```{r}
+#| message: false
+#| echo: false
+#| label: tbl-summ-fit
+#| tbl-cap: Posterior summary of the model parameters.
+mod_draws <- summarize_draws(mod)[1:6,]
+mod_draws
+```
+
+The analysis showed that on average, infants paid the most attention to fearful faces compared to all other faces with a posterior mean of `r round(mod_draws$mean[2], 2)` and a 90% CI of [`r round(mod_draws$q5[2], 2)`, `r round(mod_draws$q95[2], 2)`]. Infants also paid more attention to happy faces than to neutral faces with a posterior mean of `r round(mod_draws$mean[3], 2)` and a 90% CI of [`r round(mod_draws$q5[3], 2)`, `r round(mod_draws$q95[3], 2).
+
