@@ -1,0 +1,92 @@
+---
+title: "ssVEP_Bayes"
+author: "Alexa Monachino"
+format: pdf
+---
+
+```{r setup, echo=F}
+#| message: false
+#| echo: false
+#| output: false
+library(cmdstanr)  # use two cores
+library(bayesplot)
+
+# Determine list of packages:
+list.of.packages <- c("psych", "reshape2", "car", "ggplot2", "tidyr", "dplyr", "foreach", "doParallel", "R.matlab", "brms", "modelsummary", "posterior", "readxl", "here")
+
+# Install any packages that are not installed already:
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+# Load packages
+lapply(list.of.packages, require, character.only = TRUE)
+```
+
+# Data Import
+
+```{r data_import}
+snr <- read_excel(here("data_files", "ssVEP_Bayes.xlsx"))
+snr$variable <- relevel(as.factor(snr$variable), ref="Neutral")
+```
+
+# Analysis
+## Affective Conditions:
+```{r}
+ggplot(snr, aes(y = value, x = variable)) +
+  geom_point() +
+  ylab("Signal-to-Noise Ratio\n") +
+  xlab("Affect")
+```
+
+```{r affConds}
+#| message: false
+#| echo: false
+#| output: false
+snr$variable <- relevel(as.factor(snr$variable), ref = "Fear")
+mod_affect <- brm(value ~ variable + (1 | record_id),
+                  data = snr,
+                  iter = 4000,
+                  prior = prior(normal(0, 2.5), class = "b"),
+                  save_pars = save_pars(all = TRUE),
+                  seed = 1234,
+                  file = 'mod_affect')
+
+mod_draws <- summarize_draws(mod_affect)[1:6,]
+mod_draws
+```
+
+### Model Evaluation:
+```{r}
+#| message: false
+#| echo: false
+mcmc_plot(mod_affect, type = "trace")
+```
+
+## Age x Affect Interactions:
+```{r}
+ggplot(snr, aes(x = babyage_visit_months, y = value, color = variable)) +
+  geom_point()+
+  geom_smooth()
+
+mod_inter <- brm(value ~ variable * I(babyage_visit_months-7) + (variable | id),
+                 data = snr,
+                 prior = prior(lkj_corr_cholesky(2), class = "L") +
+                   prior(normal(0, 2.5), class = "b"),
+                 control = list(adapt_delta = .99),
+                 iter = 4000,
+                 cores = 2,
+                 seed = 1234,
+                 file = "mod_inter")
+
+mod_draws_inter <- summarize_draws(mod_inter)
+mod_draws_inter
+
+mcmc_plot(mod_inter, type = "trace")
+
+conditional_effects(mod_inter)
+
+```
+
+
+
+
